@@ -1,0 +1,6 @@
+@final @topic @data_representation(XCDR1)
+struct MD5 {
+  @key octet k[8*16];
+  char pubid;
+  long seq;
+};

@@ -1,0 +1,36 @@
+// @final is needed for Cyclone to support XCDR1
+
+// keyhash: k<31:24> ... k<7:0> 0*12
+@final @topic
+struct DataI {
+  @key long k;
+  long v;
+};
+
+// uint32_t L = strlen(k) + 1
+// keyhash: MD5(L<31:24> ... L<7:0> k[0] ... k[L-1] 0)
+@final @topic
+struct DataS {
+  @key string k;
+  long v;
+};
+
+// keyhash XCDR1: k<31:24> ... k<7:0> 0*4 l<63:56> ... l<7:0>
+// keyhash XCDR2: k<31:24> ... k<7:0> l<63:56> ... l<7:0> 0*4
+@final @topic
+struct DataIL {
+  @key long k;
+  @key long long l;
+  long v;
+};
+
+// uint32_t L = strlen(m) + 1
+// keyhash XCDR1: MD5(k<31:24> ... k<7:0> 0*4 l<63:56> ... l<7:0> L<31:24> L<23:16> L<15:8> L<7:0> m[0] ... m[L-1] 00)
+// keyhash XCDR2: MD5(k<31:24> ... k<7:0> l<63:56> ... l<7:0> L<31:24> L<23:16> L<15:8> L<7:0> m[0] ... m[L-1] 00)
+@final @topic
+struct DataILS {
+  @key long k;
+  @key long long l;
+  @key string m;
+  long v;
+};
