@@ -7,12 +7,9 @@
 #include <string>
 #include <cstdlib>
 
-#include <unistd.h>
-
 #include "dds/dds.hpp"
 #include "data.hpp"
 
-using namespace org::eclipse::cyclonedds;
 
 static const std::string istr(dds::sub::status::InstanceState s)
 {
@@ -46,8 +43,13 @@ static void print(const dds::sub::SampleInfo& si, const T& x)
   std::cout
     << "  is/vs/ss "
     << istr(si.state().instance_state()) << "/" << vstr(si.state().view_state()) << "/" << sstr(si.state().sample_state())
+#ifdef DDS_BACKEND_CONNEXT
+    << " ph " << si.publication_handle()
+    << " ih " << si.instance_handle()
+#else
     << " ph " << si.publication_handle()->handle()
     << " ih " << si.instance_handle()->handle()
+#endif
     << " " << x;
   std::cout << std::endl;
 }
@@ -55,13 +57,22 @@ static void print(const dds::sub::SampleInfo& si, const T& x)
 template<typename T>
 static int doit ()
 {
+  // Participant
   dds::domain::DomainParticipant dp{0};
+
+  // Topic
   auto tpqos = dp.default_topic_qos()
     << dds::core::policy::Reliability::Reliable(dds::core::Duration::infinite())
     << dds::core::policy::Durability::Volatile();
   dds::topic::Topic<T> tp(dp, "Data", tpqos);
+
+  // Subscriber
   dds::sub::Subscriber sub{dp};
-  dds::sub::DataReader<T> rd{sub, tp, tp.qos()};
+
+  // Reader
+  dds::sub::qos::DataReaderQos rdqos = sub.default_datareader_qos();
+  rdqos = tpqos;
+  dds::sub::DataReader<T> rd{sub, tp, rdqos};
   dds::sub::cond::ReadCondition rdcond{rd,
     dds::sub::status::DataState(dds::sub::status::SampleState::not_read(),
                                 dds::sub::status::ViewState::any(),
@@ -71,7 +82,7 @@ static int doit ()
   while (true)
   {
     ws.wait(dds::core::Duration::infinite());
-    std::cout << std::chrono::high_resolution_clock::now().time_since_epoch() << " RHC now:" << std::endl;
+    std::cout << (std::chrono::high_resolution_clock::now().time_since_epoch() / std::chrono::milliseconds(1)) << " RHC now:" << std::endl;
     auto xs = rd.read();
     std::for_each(xs.begin(), xs.end(), [](const auto& x) { print(x.info(), x.data()); });
   }

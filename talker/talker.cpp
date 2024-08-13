@@ -7,12 +7,10 @@
 #include <string>
 #include <cstdlib>
 
-#include <unistd.h>
-
 #include "dds/dds.hpp"
 #include "data.hpp"
 
-using namespace org::eclipse::cyclonedds;
+
 
 template<typename T, typename K>
 static void setkey (T& d, K k) {
@@ -30,37 +28,64 @@ static void setkey (DataILS& d, int32_t k) {
   d.m("doremifasollati");
 }
 
+
 template<typename T, typename K>
 static int doit (K k, int32_t r)
 {
 
+  // Participant
   dds::domain::DomainParticipant dp{0};
+
+  // Topic
   auto tpqos = dp.default_topic_qos()
     << dds::core::policy::Reliability::Reliable(dds::core::Duration::infinite())
     << dds::core::policy::Durability::Volatile();
+
   dds::topic::Topic<T> tp(dp, "Data", tpqos);
+
+  // Publisher
   dds::pub::Publisher pub{dp};
-  dds::pub::qos::DataWriterQos wrqos = tp.qos();
+
+  // Writer
+  dds::pub::qos::DataWriterQos wrqos = pub.default_datawriter_qos();
+  wrqos = tpqos;
   std::vector<dds::core::policy::DataRepresentationId> reprs;
-  if (r == 1)
+#ifdef DDS_BACKEND_CONNEXT
+  if (r == 1) {
+    reprs.push_back(dds::core::policy::DataRepresentation::xcdr());
+  } else {
+    reprs.push_back(dds::core::policy::DataRepresentation::xcdr2());
+  }
+#else
+  if (r == 1) {
     reprs.push_back(dds::core::policy::DataRepresentationId::XCDR1);
-  else
+  } else {
     reprs.push_back(dds::core::policy::DataRepresentationId::XCDR2);
+  }
+#endif
   wrqos
     << dds::core::policy::WriterDataLifecycle::ManuallyDisposeUnregisteredInstances()
     << dds::core::policy::DataRepresentation(reprs);
+
   dds::pub::DataWriter<T> wr{pub, tp, wrqos};
 
+  // Main event loop
   int32_t v = 1;
   while (true)
   {
     T d;
     setkey(d, k);
     d.v(v++);
-    if ((v % 5) == 0)
-      wr.dispose_instance(d);
-    else
+    if ((v % 5) == 0) {
+      auto handle = wr.lookup_instance(d);
+      if (handle.is_nil()) {
+        std::cout << "instance handle is nil, cannot call dispose." << std::endl;
+      } else {
+        wr.dispose_instance(handle);
+      }
+    } else {
       wr.write(d);
+    }
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   return 0;
