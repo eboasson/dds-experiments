@@ -39,7 +39,8 @@ static int doit (K k, int32_t r)
   // Topic
   auto tpqos = dp.default_topic_qos()
     << dds::core::policy::Reliability::Reliable(dds::core::Duration::infinite())
-    << dds::core::policy::Durability::Volatile();
+    << dds::core::policy::Durability::Volatile()
+    << dds::core::policy::History::KeepLast(5);
 
   dds::topic::Topic<T> tp(dp, "Data", tpqos);
 
