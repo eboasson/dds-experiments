@@ -11,6 +11,82 @@
 #include "data.hpp"
 
 
+template <class T>
+class ListenerTopic : public dds::topic::TopicListener<T>
+{
+public:
+    void on_inconsistent_topic(
+        dds::topic::Topic<T>&, dds::core::status::InconsistentTopicStatus const& status) override
+    {
+
+        std::cout << "Inconsistent Topic ("
+                  << dds::topic::topic_type_name<T>::value()
+                  << "): count=" << status.total_count()
+                  << "(" << std::showpos << status.total_count_change() << ")" << std::endl;
+    }
+};
+
+template <class T>
+class ListenerRead : public dds::sub::DataReaderListener<T>
+{
+public:
+    ListenerRead(){}
+
+    void on_data_available(dds::sub::DataReader<T>&) override
+    {
+      std::cout << "on_data_available" << std::endl;
+    }
+
+    void on_liveliness_changed(
+        dds::sub::DataReader<T>&, const dds::core::status::LivelinessChangedStatus& status) override
+    {
+
+        std::cout << "liveliness changed ("
+                  << dds::topic::topic_type_name<T>::value()
+                  << "): alive: " << status.alive_count()
+                  << ", not alive: " << status.not_alive_count() << std::endl;
+    }
+
+    void on_requested_deadline_missed(
+        dds::sub::DataReader<T>&, const dds::core::status::RequestedDeadlineMissedStatus&) override
+    {
+
+        std::cout << "on_requested_deadline_missed" << std::endl;
+    }
+
+    void on_requested_incompatible_qos(
+        dds::sub::DataReader<T>& /*reader*/,
+        const dds::core::status::RequestedIncompatibleQosStatus& status) override
+    {
+    
+        std::cout << "Reader: Incompatible QoS requested: ("
+                    << std::to_string(status.last_policy_id())
+                    << "): " << ", "
+                    << dds::topic::topic_type_name<T>::value()
+                    << ", count=" << status.total_count()
+                    << "("
+                    << std::showpos << status.total_count_change() << ")" << std::endl;
+    }
+
+    void on_sample_lost(dds::sub::DataReader<T>&, const dds::core::status::SampleLostStatus&) override
+    {
+        std::cout << "on_sample_lost" << std::endl;
+    }
+
+    void on_sample_rejected(dds::sub::DataReader<T>&, const dds::core::status::SampleRejectedStatus&) override
+    {
+        std::cout << "on_sample_rejected" << std::endl;
+    }
+
+    void on_subscription_matched(dds::sub::DataReader<T>&, const dds::core::status::SubscriptionMatchedStatus& status) override
+    {
+
+        std::cout << "Subscription matched ("
+                  << dds::topic::topic_type_name<T>::value() << "): "
+                  << status.current_count() << std::endl;
+    }
+};
+
 static const std::string istr(dds::sub::status::InstanceState s)
 {
   if (s == dds::sub::status::InstanceState::alive())
@@ -61,18 +137,30 @@ static int doit ()
   dds::domain::DomainParticipant dp{0};
 
   // Topic
+  std::vector<dds::core::policy::DataRepresentationId> reprs;
+#ifdef DDS_BACKEND_CONNEXT
+    reprs.push_back(dds::core::policy::DataRepresentation::xcdr());
+    reprs.push_back(dds::core::policy::DataRepresentation::xcdr2());
+#else
+    reprs.push_back(dds::core::policy::DataRepresentationId::XCDR1);
+    reprs.push_back(dds::core::policy::DataRepresentationId::XCDR2);
+#endif
+  ListenerTopic<T> listenerTopic;
   auto tpqos = dp.default_topic_qos()
     << dds::core::policy::Reliability::Reliable(dds::core::Duration::infinite())
-    << dds::core::policy::Durability::Volatile();
-  dds::topic::Topic<T> tp(dp, "Data", tpqos);
+    << dds::core::policy::Durability::Volatile()
+    << dds::core::policy::History::KeepLast(5)
+    << dds::core::policy::DataRepresentation(reprs);
+  dds::topic::Topic<T> tp(dp, "Data", tpqos, &listenerTopic, dds::core::status::StatusMask::all());
 
   // Subscriber
   dds::sub::Subscriber sub{dp};
 
   // Reader
+  ListenerRead<T> listener;
   dds::sub::qos::DataReaderQos rdqos = sub.default_datareader_qos();
   rdqos = tpqos;
-  dds::sub::DataReader<T> rd{sub, tp, rdqos};
+  dds::sub::DataReader<T> rd{sub, tp, rdqos, &listener, dds::core::status::StatusMask::all()};
   dds::sub::cond::ReadCondition rdcond{rd,
     dds::sub::status::DataState(dds::sub::status::SampleState::not_read(),
                                 dds::sub::status::ViewState::any(),
@@ -84,7 +172,18 @@ static int doit ()
     ws.wait(dds::core::Duration::infinite());
     std::cout << (std::chrono::high_resolution_clock::now().time_since_epoch() / std::chrono::milliseconds(1)) << " RHC now:" << std::endl;
     auto xs = rd.read();
-    std::for_each(xs.begin(), xs.end(), [](const auto& x) { print(x.info(), x.data()); });
+    std::for_each(xs.begin(), xs.end(), [](const auto& x) {
+
+      auto& sampleInfo = x.info();
+      if (sampleInfo.valid())
+      {
+        print(sampleInfo, x.data());
+      }
+      else
+      {
+        std::cout << "SampleInfo is not valid, skip printing ..." << std::endl;
+      }
+    });
   }
   return 0;
 }
