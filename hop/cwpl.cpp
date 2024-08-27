@@ -40,7 +40,9 @@ static Type type = Type::T128;
 static uint32_t pairid = 0;
 static uint32_t ntopics = 10;
 static bool random_timing = false;
+static bool serialize = false;
 static std::optional<std::string> datafile;
+static std::mutex serialize_lock;
 
 static dds::core::Time mkDDSTime (const time_point<CLK> x)
 {
@@ -83,7 +85,13 @@ static void source(dds::pub::DataWriter<T> wr)
   auto now = CLK::now();
   while (!interrupted)
   {
-    wr.write(sample, mkDDSTime(CLK::now()));
+    if (!serialize)
+      wr.write(sample, mkDDSTime(CLK::now()));
+    else
+    {
+      std::lock_guard<std::mutex> guard(serialize_lock);
+      wr.write(sample, mkDDSTime(CLK::now()));
+    }
     ++sample.seq();
     now += 10ms;
     std::this_thread::sleep_until(now);
@@ -102,7 +110,13 @@ static void randomsource(dds::pub::DataWriter<T> wr)
   auto now = CLK::now();
   while (!interrupted)
   {
-    wr.write(sample, mkDDSTime(CLK::now()));
+    if (!serialize)
+      wr.write(sample, mkDDSTime(CLK::now()));
+    else
+    {
+      std::lock_guard<std::mutex> guard(serialize_lock);
+      wr.write(sample, mkDDSTime(CLK::now()));
+    }
     ++sample.seq();
     auto delay = std::chrono::duration<double>(intvdist(prng));
     if (delay > 1s)
@@ -223,6 +237,7 @@ static void usage()
   << "OPTIONS:" << std::endl
   << "-tTYPE  type to use one of 8, 128 (def), 1k, 8k, 128k" << std::endl
   << "-nNTPS  use N (def = 10) topics in parallel" << std::endl
+  << "-l      serialize writes with a lock" << std::endl
   << "-r      use randomized write intervals with average 10ms" << std::endl
   << "-oFILE  write latencies to FILE" << std::endl
   << std::endl
@@ -258,10 +273,13 @@ int main (int argc, char **argv)
     usage();
 
   int opt;
-  while ((opt = getopt (argc, argv, "n:o:rt:")) != EOF)
+  while ((opt = getopt (argc, argv, "ln:o:rt:")) != EOF)
   {
     switch (opt)
     {
+      case 'l':
+        serialize = true;
+        break;
       case 'n':
         ntopics = static_cast<uint32_t>(std::atoi(optarg));
         break;
