@@ -20,8 +20,10 @@
 #include <string>
 #include <cstdlib>
 #include <random>
+#include <optional>
 
 #include <unistd.h>
+#include <signal.h>
 
 #include "dds/dds.hpp"
 #include "hop_type.hpp"
