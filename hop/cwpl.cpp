@@ -26,7 +26,7 @@
 #include <signal.h>
 
 #include "dds/dds.hpp"
-#include "mop_type.hpp"
+#include "hop_type.hpp"
 
 using namespace org::eclipse::cyclonedds;
 using namespace std::chrono_literals;
@@ -81,7 +81,6 @@ template<typename T>
 static void source(dds::pub::DataWriter<T> wr)
 {
   T sample{};
-  sample.k(0);
   auto now = CLK::now();
   while (!interrupted)
   {
@@ -106,7 +105,6 @@ static void randomsource(dds::pub::DataWriter<T> wr)
   std::exponential_distribution<double> intvdist(100);
 
   T sample{};
-  sample.k(0);
   auto now = CLK::now();
   while (!interrupted)
   {
@@ -126,17 +124,17 @@ static void randomsource(dds::pub::DataWriter<T> wr)
   }
 }
 
-// t = reception time, l = latency, i = topic index, k = source key
-struct TLK { int64_t t; double l; uint32_t k; };
-struct TLIK { int64_t t; double l; size_t i; uint32_t k; };
-struct LIK { double l; size_t i; uint32_t k; };
+// t = reception time, l = latency, i = topic index
+struct TL { int64_t t; double l; };
+struct TLI { int64_t t; double l; size_t i; };
+struct LI { double l; size_t i; };
 
 template<typename T>
 class Sink : public dds::sub::NoOpDataReaderListener<T> {
 public:
   Sink() = default;
   
-  const std::vector<TLK>& lats() const {
+  const std::vector<TL>& lats() const {
     return lats_;
   };
   
@@ -149,14 +147,14 @@ private:
     for (const auto& x : xs) {
       if (x.info().valid()) {
         const auto lat = now - (x.info().timestamp().sec() * 1000000000 + x.info().timestamp().nanosec());
-        lats_.push_back(TLK{now, lat / 1e3, x.data().k()});
+        lats_.push_back(TL{now, lat / 1e3});
       } else {
         interrupted = true;
       }
     };
   }
 
-  std::vector<TLK> lats_;
+  std::vector<TL> lats_;
 };
 
 template<typename T>
@@ -169,7 +167,7 @@ static void run()
   std::vector<dds::topic::Topic<T>> tps;
   std::vector<dds::pub::DataWriter<T>> wrs;
   for (uint32_t i = 0; i < ntopics; i++)
-    tps.push_back(dds::topic::Topic<T>{dp, "Mop" + std::to_string(i), tpqos});
+    tps.push_back(dds::topic::Topic<T>{dp, "Cwpl" + std::to_string(i), tpqos});
   for (auto& tp : tps)
     wrs.push_back(make_writer(tp));
   std::vector<dds::sub::DataReader<T>> rds;
@@ -188,7 +186,7 @@ static void run()
     threads.push_back(std::thread(random_timing ? randomsource<T> : source<T>, wr));
 
   // latencies in microseconds
-  std::vector<LIK> lats;
+  std::vector<LI> lats;
   while (!interrupted)
     std::this_thread::sleep_for(103ms);
   for (auto& t : threads)
@@ -198,28 +196,28 @@ static void run()
   for (auto wr : wrs)
     wr.close();
   // collect latencies for all topics and sort by reception time
-  std::vector<TLIK> tlats;
+  std::vector<TLI> tlats;
   for (size_t i = 0; i < ls.size(); i++)
     for (const auto& x : ls[i].lats())
-      tlats.push_back(TLIK{x.t, x.l, i, x.k});
-  std::sort(tlats.begin(), tlats.end(), [](const TLIK& a, const TLIK& b) -> bool { return a.t < b.t; });
+      tlats.push_back(TLI{x.t, x.l, i});
+  std::sort(tlats.begin(), tlats.end(), [](const TLI& a, const TLI& b) -> bool { return a.t < b.t; });
   // then reduce to just latency, topic and key
   for (const auto& x : tlats)
-    lats.push_back(LIK{x.l, x.i, x.k});
+    lats.push_back(LI{x.l, x.i});
 
   if (datafile.has_value())
   {
     std::ofstream f;
     f.open(datafile.value());
     for (const auto& l : lats)
-      f << l.l << " " << l.i << " " << l.k << std::endl;
+      f << l.l << " " << l.i << std::endl;
     f.close();
   }
   const size_t n = lats.size();
   if (n < 2) {
     std::cout << "insufficient data" << std::endl;
   } else {
-    std::sort(lats.begin(), lats.end(), [](const LIK& a, const LIK& b) -> bool { return a.l < b.l; });
+    std::sort(lats.begin(), lats.end(), [](const LI& a, const LI& b) -> bool { return a.l < b.l; });
     std::cout
       << "received " << n
       << " samples; min " << lats[0].l
@@ -303,11 +301,11 @@ int main (int argc, char **argv)
   pairid = static_cast<uint32_t>(std::atoi(argv[optind]));
   switch (type)
   {
-    case Type::T8: run<Mop8>(); break;
-    case Type::T128: run<Mop128>(); break;
-    case Type::T1k: run<Mop1k>(); break;
-    case Type::T8k: run<Mop8k>(); break;
-    case Type::T128k: run<Mop128k>(); break;
+    case Type::T8: run<Hop8>(); break;
+    case Type::T128: run<Hop128>(); break;
+    case Type::T1k: run<Hop1k>(); break;
+    case Type::T8k: run<Hop8k>(); break;
+    case Type::T128k: run<Hop128k>(); break;
   }
   return 0;
 }
