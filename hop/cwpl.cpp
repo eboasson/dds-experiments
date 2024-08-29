@@ -58,13 +58,13 @@ static void sigh(int sig)
 }
 
 template<typename T>
-static dds::sub::DataReader<T> make_reader(dds::topic::Topic<T> tp)
+static dds::sub::DataReader<T> make_reader(dds::topic::Topic<T> tp, dds::sub::DataReaderListener<T> *ls)
 {
   dds::domain::DomainParticipant dp = tp.domain_participant();
   std::vector<std::string> spart{"P" + std::to_string(pairid + 1 - 2 * (pairid % 2))};
   dds::sub::qos::SubscriberQos sqos = dp.default_subscriber_qos() << dds::core::policy::Partition(spart);
   dds::sub::Subscriber sub{dp, sqos};
-  return dds::sub::DataReader<T>{sub, tp, tp.qos()};
+  return dds::sub::DataReader<T>{sub, tp, tp.qos(), ls, dds::core::status::StatusMask::data_available()};
 }
 
 template<typename T>
@@ -175,9 +175,7 @@ static void run()
   for (size_t i = 0; i < tps.size(); i++)
     ls.push_back(Sink<T>{});
   for (size_t i = 0; i < tps.size(); i++)
-    rds.push_back(make_reader(tps[i]));
-  for (size_t i = 0; i < tps.size(); i++)
-    rds[i].listener(&ls[i], dds::core::status::StatusMask::data_available());
+    rds.push_back(make_reader(tps[i], &ls[i]));
 
   signal(SIGINT, sigh);
   signal(SIGTERM, sigh);
