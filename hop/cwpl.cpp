@@ -77,23 +77,33 @@ static dds::pub::DataWriter<T> make_writer(dds::topic::Topic<T> tp)
   return dds::pub::DataWriter<T>{pub, tp, tp.qos()};
 }
 
+#define USE_SLEEP_FOR 0
+
 template<typename T>
 static void source(dds::pub::DataWriter<T> wr)
 {
   T sample{};
-  auto now = CLK::now();
+#if ! USE_SLEEP_FOR
+  auto tnext = CLK::now();
+#endif
   while (!interrupted)
   {
+    const auto now = CLK::now();
     if (!serialize)
-      wr.write(sample, mkDDSTime(CLK::now()));
+      wr.write(sample, mkDDSTime(now));
     else
     {
       std::lock_guard<std::mutex> guard(serialize_lock);
-      wr.write(sample, mkDDSTime(CLK::now()));
+      wr.write(sample, mkDDSTime(now));
     }
     ++sample.seq();
-    now += 10ms;
-    std::this_thread::sleep_until(now);
+#if ! USE_SLEEP_FOR
+    tnext += 10ms;
+    std::this_thread::sleep_until(tnext);
+#else
+    const auto now1 = CLK::now();
+    std::this_thread::sleep_for(10ms - (now1 - now));
+#endif
   }
 }
 
